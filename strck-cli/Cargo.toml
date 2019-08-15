@@ -1,0 +1,13 @@
+[package]
+name = "strck-cli"
+version = "0.1.0"
+authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
+edition = "2018"
+
+[dependencies]
+structopt = "0.2.18"
+# use of rustls seems to be required for H2 support to work in hyper/reqwest
+reqwest = { version = "0.9.18", default-features = false, features = [ "rustls-tls" ] }
+hls_m3u8 = "0.1.4"
+futures = "0.1"
+tokio-core = "0.1.17"
