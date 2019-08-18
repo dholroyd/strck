@@ -3,23 +3,29 @@ use futures::stream::Stream;
 use core::borrow::Borrow;
 use tokio_core::reactor;
 use crate::media_manifest::MediaManifest;
+use structopt::StructOpt;
 
 mod media_manifest;
+mod cli;
 
 fn main() {
+    let cmd = cli::Strck::from_args();
+
     let mut core = reactor::Core::new().unwrap();
-    let url = std::env::args().nth(1).expect("URL must be given");
 
-    let client = create_client();
-    let u = reqwest::Url::parse(&url).expect("Invalid URL");
-    let log = StderrLog;
-    let ck = HlsCheck::new(client, u, log);
+    match cmd {
+        cli::Strck::Hls { manifest } => {
+            let client = create_client();
+            let log = StderrLog;
+            let ck = HlsCheck::new(client, manifest, log);
 
-    let handle = core.handle();
-    let fut = ck.start(handle);
-    match core.run(fut) {
-        Ok(_) => (),
-        Err(e) => panic!("Core::run() failed: {:?}", e),
+            let handle = core.handle();
+            let fut = ck.start(handle);
+            match core.run(fut) {
+                Ok(_) => (),
+                Err(e) => panic!("Core::run() failed: {:?}", e),
+            }
+        }
     }
 }
 
@@ -86,7 +92,6 @@ impl<L: ManifestEventLog> HlsCheck<L> {
                 futures::future::join_all(
                     tags.into_iter().map(move |inf| {
                         let u = url.join(inf.uri()).unwrap(/*TODO*/);
-                        println!("stream inf {}", u);
                         process_media_manifest(client.clone(), u)
                     })
                 )
