@@ -123,46 +123,58 @@ impl<L: ManifestEventLog> HlsCheck<L> {
     }
 }
 
-fn process_media_manifest(client: reqwest::r#async::Client, url: reqwest::Url) -> impl Future<Item=(), Error=HlsManifestError> {
-    load_media_manifest(client.clone(), url.clone())
-        .and_then(|manifest| {
+fn poll_media_manifest(client: reqwest::r#async::Client, url: reqwest::Url) -> impl Stream<Item=(std::time::Duration, MediaManifest), Error=HlsManifestError> {
+    // TODO:
+    //      - allow polling to be cancelled
+    //      - rate limit in case server-side blocking doesn't happen
+    //      - handle errors; retry on a sensible schedule
+    futures::stream::unfold(None, move |msn_and_part_num| {
+        let mut url = url.clone();
+        if let Some((msn, last_part_num)) = msn_and_part_num {
+            let mut new_query = url.query().map_or(String::new(), |s| s.to_string());
+            let push_num = 1;
+            if !new_query.is_empty() {
+                new_query.push_str("&");
+            }
+            new_query.push_str(&format!(
+                "_HLS_msn={}&_HLS_part={}&_HLS_push={}",
+                msn,
+                last_part_num + 1,
+                push_num
+            ));
+            url.set_query(Some(&new_query));
+        }
+        let start = std::time::Instant::now();
+        Some(load_media_manifest(client.clone(), url).and_then(move |manifest| {
+            let duration = std::time::Instant::now().duration_since(start);
             let last_part = manifest.parts.last().expect("At least one part" /* TODO */);
-            futures::future::loop_fn((last_part.msn, last_part.part_num), move |(msn, last_part_num)| {
-                let mut url = url.clone();
-                let mut new_query = url.query().map_or(String::new(), |s| s.to_string() );
-                let push_num = 1;
-                if !new_query.is_empty() {
-                    new_query.push_str("&");
-                }
-                new_query.push_str(&format!(
-                    "_HLS_msn={}&_HLS_part={}&_HLS_push={}",
-                    msn,
-                    last_part_num+1,
-                    push_num
-                ));
-                url.set_query(Some(&new_query));
-                let start = std::time::Instant::now();
-                load_media_manifest(client.clone(), url)
-                    .and_then(move |manifest| {
-                        let duration = std::time::Instant::now().duration_since(start);
-                        let last_part = manifest.parts.last().expect("At least one part" /* TODO */);
-                        let part_duration = std::time::Duration::from_micros((last_part.duration * 1_000_000.0) as u64);
-                        if duration > part_duration {
-                            eprintln!("Blocking manifest reload took {}ms longer than part duration: {}ms", duration.as_millis()-part_duration.as_millis(), duration.as_millis())
-                        }
-                        if last_part.msn == msn {
-                            if last_part.part_num != last_part_num + 1 {
-                                eprintln!("Expected part {} to be available, but got {} (MSN={})", last_part_num + 1, last_part.part_num, msn);
-                            }
-                        } else if last_part.msn == msn + 1 {
-                            if last_part.part_num != 0 {
-                                eprintln!("Expected part 0, but got {}, after MSN changed from {} to {}", last_part.part_num, msn, last_part.msn);
-                            }
-                        }
-                        Ok(futures::future::Loop::Continue((last_part.msn, last_part.part_num)))
-                    })
-            })
+            let msn = last_part.msn;
+            let part_num = last_part.part_num;
+            Ok(((duration, manifest), Some((msn, part_num))))
+        }))
+    })
+}
+
+fn process_media_manifest(client: reqwest::r#async::Client, url: reqwest::Url) -> impl Future<Item=(), Error=HlsManifestError> {
+    poll_media_manifest(client, url)
+        .and_then(move |(duration, manifest)| {
+            let last_part = manifest.parts.last().expect("At least one part" /* TODO */);
+            let part_duration = std::time::Duration::from_micros((last_part.duration * 1_000_000.0) as u64);
+            if duration > part_duration {
+                eprintln!("Blocking manifest reload took {}ms longer than part duration: {}ms", duration.as_millis()-part_duration.as_millis(), duration.as_millis())
+            }
+//            if last_part.msn == msn {
+//                if last_part.part_num != last_part_num + 1 {
+//                    eprintln!("Expected part {} to be available, but got {} (MSN={})", last_part_num + 1, last_part.part_num, msn);
+//                }
+//            } else if last_part.msn == msn + 1 {
+//                if last_part.part_num != 0 {
+//                    eprintln!("Expected part 0, but got {}, after MSN changed from {} to {}", last_part.part_num, msn, last_part.msn);
+//                }
+//            }
+            Ok(())
         })
+        .fold((), |_, _| Ok(()) )
 }
 fn load_media_manifest(client: reqwest::r#async::Client, url: reqwest::Url) -> impl Future<Item=MediaManifest, Error=HlsManifestError> {
     let req = client.get(url).build().unwrap();
