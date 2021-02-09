@@ -1,11 +1,12 @@
-use crate::ManifestEventLog;
+use strck::event_log::EventSink;
+use crate::{http_snoop, NullSnoop};
 use futures::prelude::*;
-use std::borrow::Borrow;
 use mp4parse::{read_mp4, MediaContext};
 use std::io;
 use std::convert::TryFrom;
 use h264_reader::nal::pps::ParamSetId;
 use reqwest::Error;
+use strck::http_snoop::BodyError;
 
 mod mpd {
     // TODO: replace this parser with something auto-generated from a schema
@@ -191,6 +192,7 @@ mod mpd {
 #[derive(Debug)]
 pub enum DashManifestError {
     Http(reqwest::Error),
+    NHttp(http_snoop::Error),
     Utf8(std::string::FromUtf8Error),
     Xml(roxmltree::Error),
     Url(String),
@@ -200,13 +202,18 @@ impl From<reqwest::Error> for DashManifestError {
         DashManifestError::Http(e)
     }
 }
-pub struct DashCheck<L: ManifestEventLog> {
-    client: reqwest::Client,
+impl From<http_snoop::Error> for DashManifestError {
+    fn from(e: http_snoop::Error) -> Self {
+        DashManifestError::NHttp(e)
+    }
+}
+pub struct DashCheck<L: EventSink> {
+    client: http_snoop::Client<NullSnoop>,
     url: reqwest::Url,
     log: L,
 }
-impl<L: ManifestEventLog> DashCheck<L> {
-    pub fn new(client: reqwest::Client, url: reqwest::Url, log: L) -> DashCheck<L> {
+impl<L: EventSink> DashCheck<L> {
+    pub fn new(client: http_snoop::Client<NullSnoop>, url: reqwest::Url, log: L) -> DashCheck<L> {
         DashCheck {
             client,
             url,
@@ -242,11 +249,9 @@ impl<L: ManifestEventLog> DashCheck<L> {
         check_all(client, repr_checks).map_err(|e| panic!("{:?}", e) ).await
     }
     pub async fn load_mpd(&self) -> Result<mpd::Mpd, DashManifestError> {
-        let req = self.client.get(self.url.clone()).build().unwrap();
+        let resp = self.client.get(self.url.clone()).send().await?;
         let url = self.url.clone();
-        let resp = self.client.execute(req).await?;
         resp.error_for_status_ref()?;
-        // TODO: enforce size limit on manifest response to avoid memory exhaustion
         let body = resp.text().await?;
         roxmltree::Document::parse(&body)
             .map_err(|e| DashManifestError::Xml(e) )
@@ -263,6 +268,8 @@ struct RepresentataionCheck {
 #[derive(Debug)]
 enum DashMediaError {
     Http(reqwest::Error),
+    NHttp(http_snoop::Error),
+    Body,  // TODO expose underlying disgnostics
     Mp4(mp4parse::Error),
     UnsupportedTrackCount(usize),
     ResponseSizeExceedsLimit(usize),
@@ -272,14 +279,19 @@ impl From<reqwest::Error> for DashMediaError {
         DashMediaError::Http(e)
     }
 }
+impl From<http_snoop::Error> for DashMediaError {
+    fn from(e: http_snoop::Error) -> Self {
+        DashMediaError::NHttp(e)
+    }
+}
 
-async fn check_all(client: reqwest::Client, repr_checks: Vec<RepresentataionCheck>) -> Result<(), DashMediaError> {
+async fn check_all(client: http_snoop::Client<NullSnoop>, repr_checks: Vec<RepresentataionCheck>) -> Result<(), DashMediaError> {
     futures::stream::iter(repr_checks)
         .map(Ok)
         .try_for_each(move |check| check_repr(client.clone(), check)).await
 }
 
-async fn check_repr(client: reqwest::Client, check: RepresentataionCheck) -> Result<(), DashMediaError> {
+async fn check_repr(client: http_snoop::Client<NullSnoop>, check: RepresentataionCheck) -> Result<(), DashMediaError> {
     let cl = client.clone();
     let (init_data, init) = get_init(client, check.init.clone()).await?;
     // TODO: support multiplexed media (multiple tracks) later
@@ -293,36 +305,26 @@ async fn check_repr(client: reqwest::Client, check: RepresentataionCheck) -> Res
     }
 }
 
-async fn get_buffered(client: reqwest::Client, url: reqwest::Url, limit: usize) -> Result<Vec<u8>, DashMediaError> {
-    let req = client.get(url).build().unwrap();
-    let resp = client.execute(req).await?;
+async fn get_init(client: http_snoop::Client<NullSnoop>, url: reqwest::Url) -> Result<(bytes::Bytes, MediaContext), DashMediaError> {
+    let resp = client.get(url).send().await?;
     resp.error_for_status_ref()?;
-    resp.bytes_stream()
-        .map_err(DashMediaError::Http)
-        .try_fold(vec![], |mut v, c| async move {
-            if v.len() + c.len() <= limit {
-                v.extend_from_slice(c.borrow());
-                Ok(v)
-            } else {
-                Err(DashMediaError::ResponseSizeExceedsLimit(limit))
-            }
-        }).await
-}
-
-async fn get_init(client: reqwest::Client, url: reqwest::Url) -> Result<(Vec<u8>, MediaContext), DashMediaError> {
-    let body = get_buffered(client, url, 10*1024*1024).await?;
+    let body = resp.bytes()
+        .map_err(|e| DashMediaError::Body).await?;
     let mut ctx = MediaContext::new();
     let mut read = io::Cursor::new(&body[..]);
-    read_mp4(&mut read, &mut ctx).map(|_| (body, ctx) )
+    read_mp4(&mut read, &mut ctx).map(|_| (body.clone(), ctx))
         .map_err(|e| DashMediaError::Mp4(e))
 }
 
-async fn get_seg(client: reqwest::Client, init_data: &[u8], url: reqwest::Url) -> Result<(MediaContext, Vec<u8>), DashMediaError> {
+async fn get_seg(client: http_snoop::Client<NullSnoop>, init_data: &[u8], url: reqwest::Url) -> Result<(MediaContext, Vec<u8>), DashMediaError> {
     let mut data = init_data.to_vec();
-    let mut body = get_buffered(client, url, 10*1024*1024).await?;
+    let resp = client.get(url).send().await?;
+    resp.error_for_status_ref()?;
+    let body = resp.bytes()
+        .map_err(|e| DashMediaError::Body ).await?;
     let mut ctx = MediaContext::new();
     // mp4parse wants the segment to be prefixed with the init segment; oblige, although this is inefficient
-    data.append(&mut body);
+    data.extend_from_slice(body.as_ref());
     let mut read = io::Cursor::new(&data[..]);
     read_mp4(&mut read, &mut ctx)
         .map_err(|e| DashMediaError::Mp4(e))
@@ -331,7 +333,7 @@ async fn get_seg(client: reqwest::Client, init_data: &[u8], url: reqwest::Url) -
         })
 }
 
-async fn check_track(client: reqwest::Client, init_data: Vec<u8>, init: MediaContext, check: RepresentataionCheck) -> Result<(), DashMediaError> {
+async fn check_track(client: http_snoop::Client<NullSnoop>, init_data: bytes::Bytes, init: MediaContext, check: RepresentataionCheck) -> Result<(), DashMediaError> {
     let track = &init.tracks[0];
     match &track.stsd.as_ref().unwrap().descriptions[0] {
         mp4parse::SampleEntry::Audio(aud) => {

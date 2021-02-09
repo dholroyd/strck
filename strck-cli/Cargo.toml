@@ -5,14 +5,27 @@ authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
 edition = "2018"
 
 [dependencies]
-structopt = "0.2.18"
+strck = { path = "../strck" }
+structopt = "0.3.12"
 # use of rustls seems to be required for H2 support to work in hyper/reqwest
-reqwest = { version = "0.10", default-features = false, features = [ "rustls-tls", "stream" ] }
-hls_m3u8 = { git = "https://github.com/Luro02/hls_m3u8.git" }
+reqwest = { version = "0.10", default_features = false, features = [ "rustls-tls", "stream", "gzip" ] }
+hls_m3u8 = { git = "https://github.com/dholroyd/hls_m3u8.git", branch = "parser-perf", features = [ "chrono" ] }
 futures = "0.3"
-tokio = { version = "0.2", features = [ "full" ] }
+tokio = { version = "0.2.5", features = [ "full" ] }
+bytes = "0.5.4"
 roxmltree = "0.7"
 mp4parse = "0.11"
 h264-reader = "0.4.0"
 hexdump = "0.1.0"
 url = "2.1.1"
+env_logger = "0.7.1"
+log = "0.4.11"
+uuid = { version = "0.8", features = ["v4"] }
+blob-uuid = "0.4.0"
+maplit = "1.0.2"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+hdrhistogram = "7.1.0"
+codemap = "0.1.3"
+codemap-diagnostic = "0.1.1"
