@@ -104,8 +104,21 @@ pub struct HttpResponseInfo {
     pub status: hyper::StatusCode,
     pub headers: hyper::HeaderMap,
     pub version: hyper::Version,
-    pub body: Result<bytes::Bytes, BodyError>,
+    pub body: Result<BodyInfo, BodyError>,
     pub remote_address: Option<SocketAddr>,
+}
+impl HttpResponseInfo {
+    pub fn hash(&self) -> Result<u64, &BodyError> {
+        self.body.as_ref().map(|b| b.hash )
+    }
+}
+
+pub struct BodyInfo {
+    // the actual body payload bytes
+    pub data: bytes::Bytes,
+    // fingerprint calculated from the payload bytes so as to enable cheap tests for equality
+    // between one response payload and another
+    pub hash: u64,
 }
 
 pub static HTTP_INFO_LIVE_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -273,6 +286,11 @@ impl<S: Snoop> RequestBuilder<S> {
                             Err(BodyError::ResponseSize(limit))
                         }
                     }).map_ok(bytes::Bytes::from).await;
+                const RANDOM_SEED: u64 = 0x3C089B1F88804C3F;
+                let body = body.map(|data| {
+                    let hash = wyhash::wyhash(data.as_ref(), RANDOM_SEED);
+                    BodyInfo { data, hash }
+                });
                 let info = HttpResponseInfo {
                     status,
                     headers: headers.clone(),
@@ -365,6 +383,7 @@ impl Response {
             .unwrap()
             .body
             .as_ref()
+            .map(|v| &v.data )
             .map_err(|e| e.clone() )
     }
     pub async fn text_with_charset(&self, default_encoding: &str) -> Result<String, Error> {

@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::http_snoop::HttpRef;
 use crate::metric::Metric;
 
-// Set-of-u64 structure optimised for the case where multiple contagious values are stored
+// Set-of-u64 structure optimised for the case where multiple contiguous values are stored
 struct SequenceSet {
     spans: Vec<SeqSpan>
 }
@@ -242,6 +242,21 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
                 self.update_timeline(last, this);
             }
         }
+
+        if let (Ok(this_resp), Ok(last_resp)) = (&this.href.info().response, &last.href.info().response) {
+            if this_resp.hash().unwrap() == last_resp.hash().unwrap() {
+                // response bodies are identical
+                if let (Some(this_last_modified), Some(last_last_modified)) = (this_resp.headers.get("Last-Modified"), last_resp.headers.get("Last-Modified")) {
+                    if this_last_modified != last_last_modified {
+                        self.log.warning(HlsEvent::LastModifiedChangedButBodiesIdentical {
+                            delta: delta(&last, &this),
+                            this_last_modified: this_last_modified.to_str().unwrap().to_string(),
+                            last_last_modified: last_last_modified.to_str().unwrap().to_string(),
+                        })
+                    }
+                }
+            }
+        }
     }
 
     fn check_stale(&mut self, this: &PlaylistInfo) {
@@ -366,7 +381,7 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
             if let (Ok(date_time), Ok(last_modified_time)) = (httpdate::parse_http_date(date), httpdate::parse_http_date(last_modified)) {
                 if last_modified_time > date_time {
                     //self.log.warning(HlsEvent::LastModifiedInFuture {
-                    //    req_id: blob_uuid::to_blob(&this.req_id),
+                    //    req_id: this.href.clone(),
                     //    date: date.to_owned(),
                     //    last_modified: last_modified.to_owned(),
                     //})

@@ -63,7 +63,7 @@ impl StderrLog {
             HlsEvent::MediaPlaylistWithoutExtinf { req_id, url, start, end } => {
                 let mut map = codemap::CodeMap::new();
                 let req = req_id;
-                let file = map.add_file(req.info().url.to_string(), String::from_utf8_lossy(req.info().response.as_ref().unwrap().body.as_ref().unwrap()).into_owned()).span;
+                let file = map.add_file(req.info().url.to_string(), String::from_utf8_lossy(req.info().response.as_ref().unwrap().body.as_ref().unwrap().data.as_ref()).into_owned()).span;
                 let whence = file.subspan(start as u64, end as u64);
                 let label = codemap_diagnostic::SpanLabel {
                     span: whence,
@@ -88,6 +88,13 @@ impl StderrLog {
             HlsEvent::PlaylistMalformedUrl { .. } => {}
             HlsEvent::ResponseSizeExceedsLimit { .. } => {}
             HlsEvent::NumberOfRequestsExceedsLimit { .. } => {}
+            HlsEvent::LastModifiedChangedButBodiesIdentical { delta, this_last_modified, last_last_modified } => {
+                eprintln!(
+                    "Last-Modified changed from {} to {} but response bodies where identical",
+                    last_last_modified,
+                    this_last_modified,
+                )
+            }
         }
     }
 }

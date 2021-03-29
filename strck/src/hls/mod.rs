@@ -177,6 +177,11 @@ pub enum HlsEvent {
         start: usize,
         end: usize,
     },
+    LastModifiedChangedButBodiesIdentical {
+        delta: Delta,
+        this_last_modified: String,
+        last_last_modified: String,
+    }
 }
 fn ser_playlist_type<S>(ty: &Option<PlaylistType>, s: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
     match ty {
