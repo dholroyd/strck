@@ -90,11 +90,12 @@ impl StderrLog {
             HlsEvent::NumberOfRequestsExceedsLimit { .. } => {}
             HlsEvent::LastModifiedChangedButBodiesIdentical { delta, this_last_modified, last_last_modified } => {
                 eprintln!(
-                    "Last-Modified changed from {} to {} but response bodies where identical",
+                    "Last-Modified changed from {} to {} but response bodies were identical",
                     last_last_modified,
                     this_last_modified,
                 )
             }
+            HlsEvent::DaterangeAttributeChanged { .. } => {}
         }
     }
 }

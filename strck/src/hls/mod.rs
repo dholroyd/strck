@@ -181,6 +181,13 @@ pub enum HlsEvent {
         delta: Delta,
         this_last_modified: String,
         last_last_modified: String,
+    },
+    DaterangeAttributeChanged {
+        req_id: HttpRef,
+        daterange_id: String,
+        attr_name: String,
+        prev_value: String,
+        this_value: String,
     }
 }
 fn ser_playlist_type<S>(ty: &Option<PlaylistType>, s: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {

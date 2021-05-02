@@ -6,6 +6,7 @@ use hyper::http::HeaderValue;
 use std::str::FromStr;
 use crate::http_snoop::HttpRef;
 use crate::metric::Metric;
+use std::collections::HashMap;
 
 // Set-of-u64 structure optimised for the case where multiple contiguous values are stored
 struct SequenceSet {
@@ -242,6 +243,7 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
                 self.check_manifest_history_invariant(last, this);
                 self.check_stale(this);
                 self.update_timeline(last, this);
+                self.check_daterange(last_msn, this);
             }
         }
 
@@ -366,6 +368,7 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
                     .map(ToOwned::to_owned),
             })
         }
+        self.check_daterange(0, this);
     }
 
     fn check_headers(&mut self, this: &PlaylistInfo) {
@@ -388,6 +391,98 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
                     //    last_modified: last_modified.to_owned(),
                     //})
                 }
+            }
+        }
+    }
+    fn check_daterange(&mut self, last_msn: usize, this: &PlaylistInfo) {
+        let mut past_ranges = HashMap::new();
+        for s in this.playlist.segments() {
+            if let Some(date_range) = s.date_range() {
+                if s.number() > last_msn {
+                    if let Some(last_range) = past_ranges.get(&date_range.id) {
+                        self.check_daterange_attr_invariants(this, date_range, last_range);
+                    }
+                }
+                past_ranges.insert(date_range.id.to_string(), date_range.clone());
+            }
+        }
+    }
+    fn check_daterange_attr_invariants(&mut self, this: &PlaylistInfo, this_range: &hls_m3u8::parser::ExtXDateRange, last_range: &hls_m3u8::parser::ExtXDateRange) {
+        if let (Some(this_duration), Some(last_duration)) = (this_range.duration, last_range.duration) {
+            if this_duration != last_duration {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "DURATION".to_string(),
+                    prev_value: last_duration.as_secs_f32().to_string(),
+                    this_value: this_duration.as_secs_f32().to_string(),
+                })
+            }
+        }
+        if let (Some(this_start_date), Some(last_start_date)) = (this_range.start_date, last_range.start_date) {
+            if this_start_date != last_start_date {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "START-DATE".to_string(),
+                    prev_value: last_start_date.to_rfc3339(),
+                    this_value: this_start_date.to_rfc3339(),
+                })
+            }
+        }
+        if let (Some(this_planned_duration), Some(last_planned_duration)) = (this_range.planned_duration, last_range.planned_duration) {
+            if this_planned_duration != last_planned_duration {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "PLANNED-DURATION".to_string(),
+                    prev_value: last_planned_duration.as_secs_f32().to_string(),
+                    this_value: this_planned_duration.as_secs_f32().to_string(),
+                })
+            }
+        }
+        if let (Some(this_end_date), Some(last_end_date)) = (this_range.end_date, last_range.end_date) {
+            if this_end_date != last_end_date {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "END-DATE".to_string(),
+                    prev_value: last_end_date.to_rfc3339(),
+                    this_value: this_end_date.to_rfc3339(),
+                })
+            }
+        }
+        if let (Some(this_scte_cmd), Some(last_scte_cmd)) = (this_range.scte35_cmd.as_ref(), last_range.scte35_cmd.as_ref()) {
+            if this_scte_cmd != last_scte_cmd {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "SCTE-CMD".to_string(),
+                    prev_value: last_scte_cmd.to_owned(),
+                    this_value: this_scte_cmd.to_owned(),
+                })
+            }
+        }
+        if let (Some(this_scte_out), Some(last_scte_out)) = (this_range.scte35_out.as_ref(), last_range.scte35_out.as_ref()) {
+            if this_scte_out != last_scte_out {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "SCTE-OUT".to_string(),
+                    prev_value: last_scte_out.to_owned(),
+                    this_value: this_scte_out.to_owned(),
+                })
+            }
+        }
+        if let (Some(this_scte_in), Some(last_scte_in)) = (this_range.scte35_in.as_ref(), last_range.scte35_in.as_ref()) {
+            if this_scte_in != last_scte_in {
+                self.log.error(HlsEvent::DaterangeAttributeChanged {
+                    req_id: this.href.clone(),
+                    daterange_id: this_range.id.clone(),
+                    attr_name: "SCTE-IN".to_string(),
+                    prev_value: last_scte_in.to_owned(),
+                    this_value: this_scte_in.to_owned(),
+                })
             }
         }
     }
