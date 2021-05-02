@@ -221,12 +221,14 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
             })
         } else {
             self.msn_regression.put(0);
-            if last.playlist.last_segment().unwrap().number() > this.playlist.last_segment().unwrap().number() {
-                let removed_count = last.playlist.last_segment().unwrap().number() - this.playlist.last_segment().unwrap().number();
+            let last_msn = last.playlist.last_segment().unwrap().number();
+            let this_msn = this.playlist.last_segment().unwrap().number();
+            if last_msn > this_msn {
+                let removed_count = last_msn - this_msn;
                 let event = HlsEvent::LiveSegmentsRemoved {
                     delta: delta(&last, &this),
-                    last_msn: last.playlist.last_segment().unwrap().number(),
-                    this_msn: this.playlist.last_segment().unwrap().number(),
+                    last_msn,
+                    this_msn,
                     removed_count
                 };
                 if removed_count > 1 {
