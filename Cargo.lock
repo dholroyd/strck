@@ -1001,7 +1001,7 @@ dependencies = [
 [[package]]
 name = "hls_m3u8"
 version = "0.3.0"
-source = "git+https://github.com/dholroyd/hls_m3u8.git?branch=parser-perf#e987c2febc1b64952fe97a61ba9f3c6ab0e4894e"
+source = "git+https://github.com/dholroyd/hls_m3u8.git?branch=parser-perf#86cd5e9d84bae6c2cc1d31cd91fe0ff473aca79e"
 dependencies = [
  "chrono",
  "derive_builder",
