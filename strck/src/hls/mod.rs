@@ -182,6 +182,15 @@ pub enum HlsEvent {
         this_last_modified: String,
         last_last_modified: String,
     },
+    /// Response cache validators are identical between subsequent requests, but the latter response
+    /// status code wasn't "304 Not Modified"
+    MissedLastModifiedResponse {
+        delta: Delta,
+        this_last_modified: Option<String>,
+        last_last_modified: Option<String>,
+        this_etag: Option<String>,
+        last_etag: Option<String>,
+    },
     DaterangeAttributeChanged {
         req_id: HttpRef,
         daterange_id: String,

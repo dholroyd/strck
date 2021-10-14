@@ -95,6 +95,7 @@ impl StderrLog {
                     this_last_modified,
                 )
             }
+            HlsEvent::MissedLastModifiedResponse { .. } => {}
             HlsEvent::DaterangeAttributeChanged { .. } => {}
         }
     }

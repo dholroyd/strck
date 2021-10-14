@@ -4,8 +4,9 @@ use super::timeline::*;
 use std::time;
 use hyper::http::HeaderValue;
 use std::str::FromStr;
-use crate::http_snoop::HttpRef;
+use crate::http_snoop::{HttpRef, HttpResponseInfo};
 use crate::metric::Metric;
+use reqwest::header;
 use std::collections::HashMap;
 
 // Set-of-u64 structure optimised for the case where multiple contiguous values are stored
@@ -248,19 +249,42 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
         }
 
         if let (Ok(this_resp), Ok(last_resp)) = (&this.href.info().response, &last.href.info().response) {
-            if this_resp.hash().unwrap() == last_resp.hash().unwrap() {
-                // response bodies are identical
-                if let (Some(this_last_modified), Some(last_last_modified)) = (this_resp.headers.get("Last-Modified"), last_resp.headers.get("Last-Modified")) {
-                    if this_last_modified != last_last_modified {
-                        self.log.warning(HlsEvent::LastModifiedChangedButBodiesIdentical {
-                            delta: delta(&last, &this),
-                            this_last_modified: this_last_modified.to_str().unwrap().to_string(),
-                            last_last_modified: last_last_modified.to_str().unwrap().to_string(),
-                        })
-                    }
+            self.check_last_modified_changed_but_bodies_identical(&last, &this, this_resp, last_resp);
+            self.check_missed_not_modified_response(&last, &this, this_resp, last_resp);
+        }
+    }
+
+    fn check_last_modified_changed_but_bodies_identical(&mut self, last: &&PlaylistInfo, this: &&PlaylistInfo, this_resp: &HttpResponseInfo, last_resp: &HttpResponseInfo) {
+        if this_resp.hash().unwrap() == last_resp.hash().unwrap() {
+            // response bodies are identical
+            if let (Some(this_last_modified), Some(last_last_modified)) = (this_resp.headers.get(header::LAST_MODIFIED), last_resp.headers.get(header::LAST_MODIFIED)) {
+                if this_last_modified != last_last_modified {
+                    self.log.warning(HlsEvent::LastModifiedChangedButBodiesIdentical {
+                        delta: delta(&last, &this),
+                        this_last_modified: this_last_modified.to_str().unwrap().to_string(),
+                        last_last_modified: last_last_modified.to_str().unwrap().to_string(),
+                    })
                 }
             }
         }
+    }
+    fn check_missed_not_modified_response(&mut self, last: &&PlaylistInfo, this: &&PlaylistInfo, this_resp: &HttpResponseInfo, last_resp: &HttpResponseInfo) {
+        if this_resp.status != hyper::StatusCode::NOT_MODIFIED && Self::has_cache_validator(last_resp) {
+            if this_resp.headers.get(header::ETAG) == last_resp.headers.get(header::ETAG) && this_resp.headers.get(header::LAST_MODIFIED) == last_resp.headers.get(header::LAST_MODIFIED) {
+                self.log.warning(HlsEvent::MissedLastModifiedResponse {
+                    delta: delta(&last, &this),
+                    this_last_modified: this_resp.headers.get(header::LAST_MODIFIED).map(|v| v.to_str().ok() ).flatten().map(|s| s.to_string() ),
+                    last_last_modified: last_resp.headers.get(header::LAST_MODIFIED).map(|v| v.to_str().ok() ).flatten().map(|s| s.to_string() ),
+                    this_etag: this_resp.headers.get(header::ETAG).map(|v| v.to_str().ok() ).flatten().map(|s| s.to_string() ),
+                    last_etag: last_resp.headers.get(header::ETAG).map(|v| v.to_str().ok() ).flatten().map(|s| s.to_string() ),
+                })
+
+            }
+        }
+    }
+
+    fn has_cache_validator(resp: &HttpResponseInfo) -> bool {
+        resp.headers.contains_key(header::ETAG) || resp.headers.contains_key(header::LAST_MODIFIED)
     }
 
     fn check_stale(&mut self, this: &PlaylistInfo) {
