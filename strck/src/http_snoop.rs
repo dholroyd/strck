@@ -19,8 +19,7 @@ use std::{time, fmt};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use serde::Serializer;
-use serde::export::fmt::Debug;
-use serde::export::Formatter;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
 
@@ -93,7 +92,7 @@ impl serde::Serialize for HttpRef {
     }
 }
 impl Debug for HttpRef {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("HttpRef")
             .field(&blob_uuid::to_blob(&self.id()))
             .finish()
