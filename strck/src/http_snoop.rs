@@ -251,14 +251,33 @@ impl<S: Snoop> RequestBuilder<S> {
         let time_start = std::time::Instant::now();
         let mut builder = self.builder.take().unwrap();
         builder = self.add_request_id(builder);
-        let req = builder.build().expect("RequestBuilder::build() failed unexpectedly");
-        let url = req.url().clone();
+        let mut url;
         let id = self.id;
         //println!("{:?}", req.headers());
         let content_role = self.content_role.clone();
         let mut client = self.client.clone();
-        let resp = self.client.client.execute(req)
-            .await
+        let mut count = 0;
+        let resp = loop {
+            let builder = builder.try_clone().unwrap();
+            let req = builder.build().expect("RequestBuilder::build() failed unexpectedly");
+            url = req.url().clone();
+            let resp = self.client.client.execute(req).await;
+            // We sometimes see reqwert report an error where the source is a hyper Error with
+            // "kind: Proto(NO_ERROR)".  Suspicion is that this is a collision between our attempt
+            // to submit another request on an HTTP2 connection, and the server's attempt to
+            // gracefully close the same connection that it saw to be idle.  If this is true, then
+            // there isn't really any particular problem, and we retry immediately and suppress the
+            // reporting of any error messages.  We limit the number of retries to prevent an
+            // infinite loop if the server is always shutting down connections before we can submit
+            // our request.  https://github.com/seanmonstar/reqwest/issues/1052
+            if is_not_really_an_error_hack(&resp) && count < 3 {
+                count += 1;
+                info!("Retry {} on Proto(NO_ERROR)", count);
+            } else {
+                break resp;
+            }
+        };
+        let resp = resp
             .map(|resp| async {
                 let time_body_start = std::time::Instant::now();
                 let limit = self.client.response_limit_bytes;
@@ -340,6 +359,14 @@ impl<S: Snoop> RequestBuilder<S> {
 
     pub fn req_id(&self) -> uuid::Uuid {
         self.id
+    }
+}
+
+fn is_not_really_an_error_hack(resp: &Result<reqwest::Response, reqwest::Error>) -> bool {
+    if let Err(e) = resp {
+        format!("{:?}", e).contains("kind: Proto(NO_ERROR)")
+    } else {
+        false
     }
 }
 
