@@ -310,9 +310,8 @@ async fn get_init(client: http_snoop::Client<NullSnoop>, url: reqwest::Url) -> R
     resp.error_for_status_ref()?;
     let body = resp.bytes()
         .map_err(|e| DashMediaError::Body).await?;
-    let mut ctx = MediaContext::new();
     let mut read = io::Cursor::new(&body[..]);
-    read_mp4(&mut read, &mut ctx).map(|_| (body.clone(), ctx))
+    read_mp4(&mut read).map(|ctx| (body.clone(), ctx))
         .map_err(|e| DashMediaError::Mp4(e))
 }
 
@@ -322,13 +321,12 @@ async fn get_seg(client: http_snoop::Client<NullSnoop>, init_data: &[u8], url: r
     resp.error_for_status_ref()?;
     let body = resp.bytes()
         .map_err(|e| DashMediaError::Body ).await?;
-    let mut ctx = MediaContext::new();
     // mp4parse wants the segment to be prefixed with the init segment; oblige, although this is inefficient
     data.extend_from_slice(body.as_ref());
     let mut read = io::Cursor::new(&data[..]);
-    read_mp4(&mut read, &mut ctx)
+    read_mp4(&mut read)
         .map_err(|e| DashMediaError::Mp4(e))
-        .map(|_| {
+        .map(|ctx| {
             (ctx, data)
         })
 }
