@@ -206,8 +206,11 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
     fn check_update(&mut self, last: &PlaylistInfo, this: &PlaylistInfo) {
         // TODO: assert that the EXT-X-PROGRAM-DATE-TIME values continue to match up with the segments as items are removed from the top of the playlist etc
 
-        // TODO: handle playlists that are empty, without panicking
-
+        if this.playlist.last_segment().is_none() {
+            self.log.error(HlsEvent::PlaylistWithoutSegments {
+                req_id: this.href.clone(),
+            })
+        }
         // Once the stream ends, it doesn't make sense for it to start again
         if last.playlist.has_end_list && !this.playlist.has_end_list {
             self.log.warning(HlsEvent::EndListTagRemoved)
@@ -223,28 +226,29 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
             })
         } else {
             self.msn_regression.put(0);
-            let last_msn = last.playlist.last_segment().unwrap().number();
-            let this_msn = this.playlist.last_segment().unwrap().number();
-            if last_msn > this_msn {
-                let removed_count = last_msn - this_msn;
-                let event = HlsEvent::LiveSegmentsRemoved {
-                    delta: delta(&last, &this),
-                    last_msn,
-                    this_msn,
-                    removed_count
-                };
-                if removed_count > 1 {
-                    self.log.error(event);
+            if let (Some(prev_seg), Some(this_seg)) = (last.playlist.last_segment(), this.playlist.last_segment()) {
+                let last_msn = prev_seg.number();
+                let this_msn = this_seg.number();
+                if last_msn > this_msn {
+                    let removed_count = last_msn - this_msn;
+                    let event = HlsEvent::LiveSegmentsRemoved {
+                        delta: delta(&last, &this),
+                        last_msn,
+                        this_msn,
+                        removed_count
+                    };
+                    if removed_count > 1 {
+                        self.log.error(event);
+                    } else {
+                        self.log.warning(event);
+                    }
                 } else {
-                    self.log.warning(event);
+                    // we can only perform these checks when the MSN values are sane,
+                    self.check_manifest_history_invariant(last, this);
+                    self.check_stale(this);
+                    self.update_timeline(last, this);
+                    self.check_daterange(last_msn, this);
                 }
-
-            } else {
-                // we can only perform these checks when the MSN values are sane,
-                self.check_manifest_history_invariant(last, this);
-                self.check_stale(this);
-                self.update_timeline(last, this);
-                self.check_daterange(last_msn, this);
             }
         }
 
