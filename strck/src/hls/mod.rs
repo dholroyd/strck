@@ -197,7 +197,11 @@ pub enum HlsEvent {
         attr_name: String,
         prev_value: String,
         this_value: String,
-    }
+    },
+    /// we got a Media Playlist without any segments in it
+    PlaylistWithoutSegments {
+        req_id: HttpRef,
+    },
 }
 fn ser_playlist_type<S>(ty: &Option<PlaylistType>, s: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
     match ty {

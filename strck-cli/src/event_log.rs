@@ -97,6 +97,7 @@ impl StderrLog {
             }
             HlsEvent::MissedLastModifiedResponse { .. } => {}
             HlsEvent::DaterangeAttributeChanged { .. } => {}
+            HlsEvent::PlaylistWithoutSegments { .. } => {}
         }
     }
 }
