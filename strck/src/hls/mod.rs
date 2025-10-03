@@ -197,6 +197,11 @@ pub enum HlsEvent {
         attr_name: String,
         prev_value: String,
         this_value: String,
+    },
+    ExcessiveSegmentDuration {
+        msn: usize,
+        expected_duration_millis: u64,
+        actual_duration_millis: u64,
     }
 }
 fn ser_playlist_type<S>(ty: &Option<PlaylistType>, s: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {

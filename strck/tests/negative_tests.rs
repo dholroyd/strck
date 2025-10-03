@@ -1,23 +1,16 @@
 use httpmock::{MockServer};
 use std::rc::Rc;
 use std::cell::RefCell;
-use strck::hls::HlsProcessor;
+use strck::hls::{HlsEvent, HlsProcessor};
 
 #[tokio::test]
 async fn daterange_changed_attrs() {
-    let server = MockServer::start();
-    server.mock(|when, then| {
-        when.path("/main.m3u8");
-        then.status(200)
-            .header("Content-Type", "application/vnd.apple.mpegurl")
-            .body_from_file("tests/negative_tests/daterange_changed_attrs/main.m3u8");
-    });
-    server.mock(|when, then| {
-        when.path("/video.m3u8");
-        then.status(200)
-            .header("Content-Type", "application/vnd.apple.mpegurl")
-            .body_from_file("tests/negative_tests/daterange_changed_attrs/video.m3u8");
-    });
+    //let server = MockServer::start();
+    let cfgs = vec![
+        MockCfg{route: "/main.m3u8", path: "tests/negative_tests/daterange_changed_attrs/main.m3u8"},
+        MockCfg{route: "/video.m3u8", path: "tests/negative_tests/daterange_changed_attrs/video.m3u8"}
+    ];
+    let server = create_test_server(&cfgs);
     let logger = TestLog::default();
     let proc = create_test_client(&server, &logger);
     proc.start().await.unwrap();
@@ -27,6 +20,45 @@ async fn daterange_changed_attrs() {
         .iter()
         .find(|e| matches!(e, strck::hls::HlsEvent::DaterangeAttributeChanged { .. }) );
     assert!(evt.is_some());
+}
+
+#[tokio::test]
+async fn valid_segment_durations() {
+    let cfgs = vec![
+        MockCfg{route: "/main.m3u8", path: "tests/negative_tests/excessive_segment_durations/main.m3u8"},
+        MockCfg{route: "/video.m3u8", path: "tests/negative_tests/excessive_segment_durations/video.m3u8"}
+    ];
+    let server = create_test_server(&cfgs);
+    let logger = TestLog::default();
+    let proc = create_test_client(&server, &logger);
+    proc.start().await.unwrap();
+
+    let events = logger.events.borrow();
+    let excessive_segments: Vec<&HlsEvent> = events
+        .iter()
+        .filter(|e| matches!(e, strck::hls::HlsEvent::ExcessiveSegmentDuration { .. }) )
+        .collect();
+
+    assert_eq!(excessive_segments.len(), 2);
+}
+
+#[derive(Debug)]
+struct MockCfg<'a> {
+    route: &'a str,
+    path: &'a str,
+}
+
+fn create_test_server(cfgs: &Vec<MockCfg> ) -> MockServer {
+    let server = MockServer::start();
+    for cfg in cfgs {
+        server.mock(|when, then|{
+            when.path(cfg.route);
+            then.status(200)
+            .header("Content-Type", "application/vnd.apple.mpegurl")
+            .body_from_file(cfg.path);
+        });
+    }
+    server
 }
 
 fn create_test_client(server: &MockServer, logger: &TestLog) -> HlsProcessor<NullSnoop, TestLog, TestMetric> {

@@ -203,6 +203,27 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
         //}
     }
 
+    fn check_segment_durations(&mut self, last_msn: usize, this: &PlaylistInfo) {
+        let skip = if last_msn != 0 && last_msn >= this.playlist.media_sequence {
+            1 + last_msn - this.playlist.media_sequence
+        } else {
+            0
+        };
+        let new_segments = this.playlist.segments().skip(skip);
+        for segment in new_segments {
+            let seg_duration = segment.duration().duration();
+            let rounded_seg_duration = time::Duration::from_secs_f64(seg_duration.as_secs_f64().round());
+            let exp_duration = this.playlist.target_duration;
+            if rounded_seg_duration > exp_duration {
+                self.log.error(HlsEvent::ExcessiveSegmentDuration {
+                    msn: segment.number(),
+                    expected_duration_millis: exp_duration.as_millis() as u64,
+                    actual_duration_millis: seg_duration.as_millis() as u64
+                })
+            }
+        }
+    }
+
     fn check_update(&mut self, last: &PlaylistInfo, this: &PlaylistInfo) {
         // TODO: assert that the EXT-X-PROGRAM-DATE-TIME values continue to match up with the segments as items are removed from the top of the playlist etc
 
@@ -245,6 +266,7 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
                 self.check_stale(this);
                 self.update_timeline(last, this);
                 self.check_daterange(last_msn, this);
+                self.check_segment_durations(last_msn, this);
             }
         }
 
@@ -393,6 +415,7 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
             })
         }
         self.check_daterange(0, this);
+        self.check_segment_durations(0, this);
     }
 
     fn check_headers(&mut self, this: &PlaylistInfo) {
