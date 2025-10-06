@@ -216,6 +216,7 @@ impl<L: EventSink<Extra = HlsEvent>, M: Metric> MediaPlaylistCheck<L, M> {
             let exp_duration = this.playlist.target_duration;
             if rounded_seg_duration > exp_duration {
                 self.log.error(HlsEvent::ExcessiveSegmentDuration {
+                    req_id: this.href.clone(),
                     msn: segment.number(),
                     expected_duration_millis: exp_duration.as_millis() as u64,
                     actual_duration_millis: seg_duration.as_millis() as u64

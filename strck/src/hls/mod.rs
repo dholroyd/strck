@@ -199,6 +199,7 @@ pub enum HlsEvent {
         this_value: String,
     },
     ExcessiveSegmentDuration {
+        req_id: HttpRef,
         msn: usize,
         expected_duration_millis: u64,
         actual_duration_millis: u64,
