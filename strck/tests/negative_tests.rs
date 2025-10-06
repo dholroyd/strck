@@ -5,7 +5,6 @@ use strck::hls::{HlsEvent, HlsProcessor};
 
 #[tokio::test]
 async fn daterange_changed_attrs() {
-    //let server = MockServer::start();
     let cfgs = vec![
         MockCfg{route: "/main.m3u8", path: "tests/negative_tests/daterange_changed_attrs/main.m3u8"},
         MockCfg{route: "/video.m3u8", path: "tests/negative_tests/daterange_changed_attrs/video.m3u8"}
